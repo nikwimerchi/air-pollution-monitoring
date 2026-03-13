@@ -6,6 +6,7 @@ from pathlib import Path
 
 import joblib
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import seaborn as sns
 from sklearn.compose import ColumnTransformer
@@ -85,6 +86,25 @@ def regression_metrics(y_true: pd.Series, y_pred: pd.Series) -> dict[str, float]
     }
 
 
+def build_prediction_frame(
+    source_df: pd.DataFrame,
+    y_true: pd.Series,
+    y_pred: pd.Series,
+    baseline_pred: pd.Series,
+    period_label: str | None = None,
+) -> pd.DataFrame:
+    frame = source_df[["Measurement date", "Station code"]].copy()
+    frame["actual"] = y_true.to_numpy()
+    frame["prediction"] = y_pred.to_numpy()
+    frame["baseline_prediction"] = baseline_pred.to_numpy()
+    frame["residual"] = frame["actual"] - frame["prediction"]
+    frame["month_number"] = frame["Measurement date"].dt.month
+    frame["month_label"] = frame["Measurement date"].dt.strftime("%b")
+    if period_label is not None:
+        frame["period"] = period_label
+    return frame
+
+
 def evaluate_candidate_models(
     x_train: pd.DataFrame,
     y_train: pd.Series,
@@ -140,6 +160,15 @@ def save_model_comparison_plot(model_metrics: dict[str, dict[str, float]]) -> No
     plt.close()
 
 
+def get_quarter_periods(year: int) -> list[tuple[str, pd.Timestamp, pd.Timestamp]]:
+    return [
+        (f"{year}-Q1", pd.Timestamp(f"{year}-01-01"), pd.Timestamp(f"{year}-04-01")),
+        (f"{year}-Q2", pd.Timestamp(f"{year}-04-01"), pd.Timestamp(f"{year}-07-01")),
+        (f"{year}-Q3", pd.Timestamp(f"{year}-07-01"), pd.Timestamp(f"{year}-10-01")),
+        (f"{year}-Q4", pd.Timestamp(f"{year}-10-01"), pd.Timestamp(f"{year + 1}-01-01")),
+    ]
+
+
 def save_importance_plot(model: Pipeline, x_test: pd.DataFrame, y_test: pd.Series) -> list[dict[str, float]]:
     sample_x = x_test.sample(n=min(8000, len(x_test)), random_state=42)
     sample_y = y_test.loc[sample_x.index]
@@ -178,15 +207,13 @@ def save_importance_plot(model: Pipeline, x_test: pd.DataFrame, y_test: pd.Serie
     return top_rows
 
 
-def run_quarterly_backtest(prepared_df: pd.DataFrame, best_model_key: str) -> tuple[list[dict[str, float | str]], dict[str, float]]:
+def collect_period_predictions(
+    prepared_df: pd.DataFrame,
+    best_model_key: str,
+    periods: list[tuple[str, pd.Timestamp, pd.Timestamp]],
+) -> pd.DataFrame:
     builder = get_model_builders()[best_model_key][1]
-    periods = [
-        ("2019-Q1", pd.Timestamp("2019-01-01"), pd.Timestamp("2019-04-01")),
-        ("2019-Q2", pd.Timestamp("2019-04-01"), pd.Timestamp("2019-07-01")),
-        ("2019-Q3", pd.Timestamp("2019-07-01"), pd.Timestamp("2019-10-01")),
-        ("2019-Q4", pd.Timestamp("2019-10-01"), pd.Timestamp("2020-01-01")),
-    ]
-    backtest_rows: list[dict[str, float | str]] = []
+    prediction_frames: list[pd.DataFrame] = []
 
     for label, start, end in periods:
         train_fold = prepared_df[prepared_df["Measurement date"] < start].copy()
@@ -204,12 +231,22 @@ def run_quarterly_backtest(prepared_df: pd.DataFrame, best_model_key: str) -> tu
         fold_model = builder()
         fold_model.fit(x_train, y_train)
         fold_predictions = pd.Series(fold_model.predict(x_test), index=y_test.index)
-        fold_metrics = regression_metrics(y_test, fold_predictions)
-        baseline_metrics = regression_metrics(y_test, x_test["PM2.5"])
+        prediction_frames.append(
+            build_prediction_frame(test_fold, y_test, fold_predictions, x_test["PM2.5"], label)
+        )
+
+    return pd.concat(prediction_frames, ignore_index=True)
+
+
+def summarize_quarterly_backtest(prediction_frame: pd.DataFrame) -> tuple[list[dict[str, float | str]], dict[str, float]]:
+    backtest_rows: list[dict[str, float | str]] = []
+    for period, period_df in prediction_frame.groupby("period", sort=False):
+        fold_metrics = regression_metrics(period_df["actual"], period_df["prediction"])
+        baseline_metrics = regression_metrics(period_df["actual"], period_df["baseline_prediction"])
         backtest_rows.append(
             {
-                "period": label,
-                "rows": int(len(test_fold)),
+                "period": str(period),
+                "rows": int(len(period_df)),
                 "baseline_rmse": baseline_metrics["rmse"],
                 "baseline_mae": baseline_metrics["mae"],
                 "model_rmse": fold_metrics["rmse"],
@@ -244,6 +281,157 @@ def save_backtest_plot(backtest_rows: list[dict[str, float | str]]) -> None:
     plt.close()
 
 
+def build_monthly_uncertainty_profile(calibration_predictions: pd.DataFrame) -> pd.DataFrame:
+    profile = (
+        calibration_predictions.groupby(["month_number", "month_label"], sort=True)["residual"]
+        .agg(
+            residual_q10=lambda values: np.quantile(values, 0.10),
+            residual_q90=lambda values: np.quantile(values, 0.90),
+            residual_median=lambda values: np.quantile(values, 0.50),
+            residual_std="std",
+            sample_size="size",
+        )
+        .reset_index()
+        .sort_values("month_number")
+        .reset_index(drop=True)
+    )
+    profile[["residual_q10", "residual_q90", "residual_median", "residual_std"]] = profile[[
+        "residual_q10",
+        "residual_q90",
+        "residual_median",
+        "residual_std",
+    ]].round(4)
+    profile["interval_width"] = (profile["residual_q90"] - profile["residual_q10"]).round(4)
+    return profile
+
+
+def apply_uncertainty_profile(
+    prediction_frame: pd.DataFrame, uncertainty_profile: pd.DataFrame
+) -> tuple[pd.DataFrame, dict[str, float]]:
+    profiled = prediction_frame.merge(
+        uncertainty_profile[["month_number", "residual_q10", "residual_q90", "interval_width"]],
+        on="month_number",
+        how="left",
+    )
+    profiled["lower_bound"] = profiled["prediction"] + profiled["residual_q10"]
+    profiled["upper_bound"] = profiled["prediction"] + profiled["residual_q90"]
+    profiled["interval_width_value"] = profiled["upper_bound"] - profiled["lower_bound"]
+    profiled["within_interval"] = (
+        (profiled["actual"] >= profiled["lower_bound"]) & (profiled["actual"] <= profiled["upper_bound"])
+    ).astype(int)
+    summary = {
+        "interval_level": 0.8,
+        "coverage": round(float(profiled["within_interval"].mean()), 4),
+        "average_width": round(float(profiled["interval_width_value"].mean()), 4),
+    }
+    return profiled, summary
+
+
+def build_monthly_residual_analysis(prediction_frame: pd.DataFrame) -> pd.DataFrame:
+    analysis = (
+        prediction_frame.groupby(["month_number", "month_label"], sort=True)
+        .agg(
+            rows=("residual", "size"),
+            bias=("residual", "mean"),
+            mae=("residual", lambda series: series.abs().mean()),
+            rmse=("residual", lambda series: float(np.sqrt(np.mean(np.square(series))))),
+            residual_std=("residual", "std"),
+            interval_coverage=("within_interval", "mean"),
+            average_interval_width=("interval_width_value", "mean"),
+        )
+        .reset_index()
+        .sort_values("month_number")
+        .reset_index(drop=True)
+    )
+    numeric_columns = [
+        "bias",
+        "mae",
+        "rmse",
+        "residual_std",
+        "interval_coverage",
+        "average_interval_width",
+    ]
+    analysis[numeric_columns] = analysis[numeric_columns].round(4)
+    return analysis
+
+
+def save_monthly_residual_plot(monthly_analysis: pd.DataFrame) -> None:
+    fig, axis_left = plt.subplots(figsize=(10, 5.5))
+    sns.barplot(data=monthly_analysis, x="month_label", y="bias", color="#2a9d8f", ax=axis_left)
+    axis_left.axhline(0, color="#264653", linewidth=1)
+    axis_left.set_ylabel("Mean residual (Actual - Predicted)")
+    axis_left.set_xlabel("")
+    axis_left.set_title("Monthly Residual Bias and MAE")
+
+    axis_right = axis_left.twinx()
+    sns.lineplot(
+        data=monthly_analysis,
+        x="month_label",
+        y="mae",
+        marker="o",
+        linewidth=2.2,
+        color="#e76f51",
+        ax=axis_right,
+    )
+    axis_right.set_ylabel("Monthly MAE")
+    plt.tight_layout()
+    plt.savefig(VISUALS_DIR / "monthly_residual_analysis.png", dpi=180)
+    plt.close(fig)
+
+
+def save_uncertainty_coverage_plot(monthly_analysis: pd.DataFrame) -> None:
+    fig, axis_left = plt.subplots(figsize=(10, 5.5))
+    sns.lineplot(
+        data=monthly_analysis,
+        x="month_label",
+        y="interval_coverage",
+        marker="o",
+        linewidth=2.4,
+        color="#0b5d7a",
+        ax=axis_left,
+    )
+    axis_left.axhline(0.8, color="#6c757d", linestyle="--", linewidth=1)
+    axis_left.set_ylim(0, 1)
+    axis_left.set_ylabel("Empirical coverage")
+    axis_left.set_xlabel("")
+    axis_left.set_title("Monthly Uncertainty Coverage and Interval Width")
+
+    axis_right = axis_left.twinx()
+    sns.barplot(data=monthly_analysis, x="month_label", y="average_interval_width", color="#84a59d", ax=axis_right)
+    axis_right.set_ylabel("Average interval width")
+    plt.tight_layout()
+    plt.savefig(VISUALS_DIR / "monthly_uncertainty_coverage.png", dpi=180)
+    plt.close(fig)
+
+
+def save_uncertainty_band_example_plot(prediction_frame: pd.DataFrame) -> None:
+    station_code = prediction_frame["Station code"].mode().iat[0]
+    sample = (
+        prediction_frame[prediction_frame["Station code"] == station_code]
+        .sort_values("Measurement date")
+        .head(168)
+        .copy()
+    )
+    plt.figure(figsize=(11, 5.5))
+    plt.plot(sample["Measurement date"], sample["actual"], label="Actual", color="#133b5c", linewidth=1.8)
+    plt.plot(sample["Measurement date"], sample["prediction"], label="Prediction", color="#f4a261", linewidth=1.8)
+    plt.fill_between(
+        sample["Measurement date"],
+        sample["lower_bound"],
+        sample["upper_bound"],
+        color="#2a9d8f",
+        alpha=0.18,
+        label="80% uncertainty band",
+    )
+    plt.title(f"Prediction Interval Example for Station {station_code}")
+    plt.xlabel("")
+    plt.ylabel("PM2.5")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(VISUALS_DIR / "uncertainty_band_example.png", dpi=180)
+    plt.close()
+
+
 def build_report(
     dataset_summary: dict[str, object],
     baseline_metrics: dict[str, float],
@@ -252,6 +440,8 @@ def build_report(
     model_metrics: dict[str, dict[str, float]],
     backtest_rows: list[dict[str, float | str]],
     backtest_summary: dict[str, float],
+    uncertainty_summary: dict[str, float],
+    monthly_analysis: pd.DataFrame,
     top_features: list[dict[str, float]],
 ) -> str:
     champion_metrics = model_metrics[best_model_key]
@@ -266,6 +456,10 @@ def build_report(
     backtest_lines = "\n".join(
         f"- {row['period']}: RMSE {row['model_rmse']}, baseline RMSE {row['baseline_rmse']}, R2 {row['model_r2']}"
         for row in backtest_rows
+    )
+    monthly_lines = "\n".join(
+        f"- {row['month_label']}: bias {row['bias']}, MAE {row['mae']}, RMSE {row['rmse']}, coverage {row['interval_coverage']}, width {row['average_interval_width']}"
+        for row in monthly_analysis.to_dict(orient="records")
     )
     return f"""# Air Pollution Forecasting Report
 
@@ -309,22 +503,36 @@ Average across quarters:
 - Mean RMSE: {backtest_summary['mean_rmse']}
 - Mean R2: {backtest_summary['mean_r2']}
 
+## Monthly Residual Analysis
+{monthly_lines}
+
+## Uncertainty Bands
+- Interval level: {int(uncertainty_summary['interval_level'] * 100)}%
+- Empirical holdout coverage: {uncertainty_summary['coverage']}
+- Average interval width: {uncertainty_summary['average_width']}
+- Calibration source: 2018 quarter-by-quarter walk-forward residuals grouped by calendar month
+
 ## Most Influential Features
 {top_feature_lines}
 
 ## Interpretation
-The evaluation is now stronger in two ways. First, a second model family is trained on the same feature set to test whether the gains come from the model design or only from the features. Second, quarterly walk-forward backtesting measures how stable the selected model is through time instead of relying on one aggregate holdout score.
+The evaluation is now stronger in three ways. First, a second model family is trained on the same feature set to test whether the gains come from the model design or only from the features. Second, quarterly walk-forward backtesting measures how stable the selected model is through time instead of relying on one aggregate holdout score. Third, monthly residual diagnostics and empirical uncertainty bands reveal when the model is biased, how error magnitude shifts through the year, and how reliable the prediction interval is.
 
 ## Artifacts
 - Model: artifacts/model.joblib
 - Metrics: artifacts/metrics.json
 - Model comparison: artifacts/model_comparison.csv
 - Quarterly backtest: artifacts/quarterly_backtest.csv
+- Monthly residual analysis: artifacts/monthly_residual_analysis.csv
+- Monthly uncertainty profile: artifacts/monthly_uncertainty_profile.csv
 - Station metadata: artifacts/stations.csv
 - Prediction plot: visuals/predicted_vs_actual.png
 - Feature importance plot: visuals/feature_importance.png
 - Model comparison plot: visuals/model_comparison.png
 - Quarterly backtest plot: visuals/quarterly_backtest_rmse.png
+- Monthly residual plot: visuals/monthly_residual_analysis.png
+- Monthly uncertainty plot: visuals/monthly_uncertainty_coverage.png
+- Uncertainty band example: visuals/uncertainty_band_example.png
 """
 
 
@@ -345,6 +553,7 @@ def main() -> None:
         x_train, y_train, x_test, y_test
     )
     predictions = prediction_store[best_model_key]
+    holdout_prediction_frame = build_prediction_frame(test_df, y_test, predictions, baseline_predictions)
 
     dataset_summary = {
         "rows_used": int(len(prepared.frame)),
@@ -355,11 +564,22 @@ def main() -> None:
         "test_rows": int(len(test_df)),
     }
 
-    backtest_rows, backtest_summary = run_quarterly_backtest(prepared.frame, best_model_key)
+    backtest_prediction_frame = collect_period_predictions(prepared.frame, best_model_key, get_quarter_periods(2019))
+    backtest_rows, backtest_summary = summarize_quarterly_backtest(backtest_prediction_frame)
+    calibration_prediction_frame = collect_period_predictions(prepared.frame, best_model_key, get_quarter_periods(2018))
+    uncertainty_profile = build_monthly_uncertainty_profile(calibration_prediction_frame)
+    holdout_prediction_frame, uncertainty_summary = apply_uncertainty_profile(
+        holdout_prediction_frame, uncertainty_profile
+    )
+    monthly_analysis = build_monthly_residual_analysis(holdout_prediction_frame)
+
     top_features = save_importance_plot(model, x_test, y_test)
     save_prediction_plot(y_test, predictions)
     save_model_comparison_plot(comparison_metrics)
     save_backtest_plot(backtest_rows)
+    save_monthly_residual_plot(monthly_analysis)
+    save_uncertainty_coverage_plot(monthly_analysis)
+    save_uncertainty_band_example_plot(holdout_prediction_frame)
 
     metrics_payload = {
         "dataset": dataset_summary,
@@ -371,6 +591,11 @@ def main() -> None:
             "granularity": "quarter",
             "quarters": backtest_rows,
             "summary": backtest_summary,
+        },
+        "uncertainty": {
+            **uncertainty_summary,
+            "month_profiles": uncertainty_profile.to_dict(orient="records"),
+            "monthly_analysis": monthly_analysis.to_dict(orient="records"),
         },
     }
 
@@ -385,6 +610,8 @@ def main() -> None:
         ]
     ).to_csv(ARTIFACTS_DIR / "model_comparison.csv", index=False)
     pd.DataFrame(backtest_rows).to_csv(ARTIFACTS_DIR / "quarterly_backtest.csv", index=False)
+    monthly_analysis.to_csv(ARTIFACTS_DIR / "monthly_residual_analysis.csv", index=False)
+    uncertainty_profile.to_csv(ARTIFACTS_DIR / "monthly_uncertainty_profile.csv", index=False)
     with (ARTIFACTS_DIR / "sample_input.json").open("w", encoding="utf-8") as handle:
         json.dump(
             {
@@ -420,6 +647,8 @@ def main() -> None:
         comparison_metrics,
         backtest_rows,
         backtest_summary,
+        uncertainty_summary,
+        monthly_analysis,
         top_features,
     )
     with (REPORTS_DIR / "model_report.md").open("w", encoding="utf-8") as handle:

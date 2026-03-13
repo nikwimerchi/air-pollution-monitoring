@@ -19,6 +19,8 @@ This is a stronger framing for academic submission than predicting PM2.5 at the 
    - HistGradientBoostingRegressor
    - Ridge Regression
 - Quarterly walk-forward backtesting is run over 2019 to measure temporal stability.
+- Monthly residual analysis is exported to show bias, MAE, RMSE, and seasonal error shifts.
+- Empirical 80% uncertainty bands are calibrated from 2018 walk-forward residuals and evaluated on the 2019 holdout set.
 - Comparison and backtest outputs are exported as both CSV artifacts and plots.
 
 ## Dataset Snapshot
@@ -93,6 +95,8 @@ Outputs created after training:
 - `artifacts/metrics.json`
 - `artifacts/model_comparison.csv`
 - `artifacts/quarterly_backtest.csv`
+- `artifacts/monthly_residual_analysis.csv`
+- `artifacts/monthly_uncertainty_profile.csv`
 - `artifacts/stations.csv`
 - `artifacts/sample_input.json`
 - `reports/model_report.md`
@@ -100,6 +104,9 @@ Outputs created after training:
 - `visuals/feature_importance.png`
 - `visuals/model_comparison.png`
 - `visuals/quarterly_backtest_rmse.png`
+- `visuals/monthly_residual_analysis.png`
+- `visuals/monthly_uncertainty_coverage.png`
+- `visuals/uncertainty_band_example.png`
 
 ## Deployment
 
@@ -123,7 +130,8 @@ streamlit run app.py
 1. Run `python scripts/train_model.py`
 2. Run `streamlit run app.py`
 3. Open the Validation tab to show model-family comparison and quarterly backtesting
-4. Open the Visuals tab to show plots suitable for report screenshots
+4. Open the Diagnostics tab to show monthly residual analysis and interval coverage
+5. Open the Visuals tab to show plots suitable for report screenshots
 
 ## Recommended Submission Contents for AIMS
 

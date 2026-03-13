@@ -37,6 +37,23 @@ def load_assets() -> tuple[dict[str, object], pd.DataFrame]:
     return metrics, stations
 
 
+def compute_uncertainty_bounds(prediction: float, month_number: int, metrics_payload: dict[str, object]) -> tuple[float, float, dict[str, object] | None]:
+    month_profiles = metrics_payload.get("uncertainty", {}).get("month_profiles", [])
+    for row in month_profiles:
+        if int(row["month_number"]) == int(month_number):
+            lower = max(prediction + float(row["residual_q10"]), 0.0)
+            upper = max(prediction + float(row["residual_q90"]), lower)
+            return lower, upper, row
+    return prediction, prediction, None
+
+
+def show_visual(image_path: Path, caption: str) -> None:
+    if image_path.exists():
+        st.image(str(image_path), caption=caption)
+    else:
+        st.warning(f"Missing visual: {image_path.name}. Re-run training to regenerate it.")
+
+
 def inject_styles() -> None:
     st.markdown(
         """
@@ -79,6 +96,31 @@ def inject_styles() -> None:
             letter-spacing: 0.08em;
             color: #4d6c7c;
             margin-bottom: 0.2rem;
+        }
+        .spotlight {
+            background: linear-gradient(135deg, rgba(11, 93, 122, 0.96), rgba(19, 59, 92, 0.96));
+            color: white;
+            border-radius: 20px;
+            padding: 1.2rem 1.25rem;
+            box-shadow: 0 16px 40px rgba(17, 44, 64, 0.20);
+            margin-bottom: 1rem;
+        }
+        .spotlight .value {
+            font-size: 2rem;
+            font-weight: 700;
+            margin: 0.15rem 0;
+        }
+        .mini-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.75rem;
+            margin-top: 0.75rem;
+        }
+        .mini-card {
+            background: rgba(255, 255, 255, 0.14);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 14px;
+            padding: 0.75rem;
         }
         </style>
         """,
@@ -137,7 +179,7 @@ with st.expander("Station metadata", expanded=True):
     st.write(f"Longitude: {station_details['Longitude']}")
 
 forecast_tab, validation_tab, visuals_tab, deploy_tab = st.tabs(
-    ["Forecast", "Validation", "Visuals", "Deployment"]
+    ["Forecast", "Diagnostics", "Visuals", "Deployment"]
 )
 
 with forecast_tab:
@@ -190,19 +232,43 @@ with forecast_tab:
 
     prediction = float(model.predict(input_frame)[0])
     prediction = max(prediction, 0.0)
+    lower_bound, upper_bound, month_profile = compute_uncertainty_bounds(prediction, timestamp.month, metrics)
     band = air_quality_band(prediction)
+    coverage = metrics.get("uncertainty", {}).get("coverage", "n/a")
 
-    result_columns = st.columns(2)
+    st.markdown(
+        f"""
+        <section class="spotlight">
+            <div class="small-label" style="color: rgba(255,255,255,0.72);">Forecast Output</div>
+            <div class="value">{prediction:.2f} PM2.5</div>
+            <div>Expected next-hour air quality band: <strong>{band}</strong></div>
+            <div class="mini-grid">
+                <div class="mini-card"><div class="small-label" style="color: rgba(255,255,255,0.72);">Lower 80% bound</div><div>{lower_bound:.2f}</div></div>
+                <div class="mini-card"><div class="small-label" style="color: rgba(255,255,255,0.72);">Upper 80% bound</div><div>{upper_bound:.2f}</div></div>
+                <div class="mini-card"><div class="small-label" style="color: rgba(255,255,255,0.72);">Historical coverage</div><div>{coverage}</div></div>
+            </div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if month_profile is not None:
+        st.caption(
+            f"Uncertainty band is calibrated from historical residuals for {month_profile['month_label']} using an 80% empirical interval."
+        )
+
+    result_columns = st.columns(3)
     result_columns[0].metric("Predicted next-hour PM2.5", f"{prediction:.2f}")
-    result_columns[1].metric("Air quality band", band)
+    result_columns[1].metric("Lower bound", f"{lower_bound:.2f}")
+    result_columns[2].metric("Upper bound", f"{upper_bound:.2f}")
 
     st.markdown(
         "<div class='panel'><strong>Why this forecast is stronger</strong><br/>"
-        "The deployed model uses current measurements plus recent hourly and daily history from the same station, which makes it much more realistic for operational forecasting.</div>",
+        "The deployed model uses current measurements plus recent hourly and daily history from the same station, and now reports a month-aware empirical uncertainty band instead of a point estimate only.</div>",
         unsafe_allow_html=True,
     )
     st.subheader("Model input sent to the predictor")
-    st.dataframe(input_frame, use_container_width=True)
+    st.dataframe(input_frame, width="stretch")
 
 with validation_tab:
     comparison_rows = [
@@ -211,28 +277,43 @@ with validation_tab:
     ]
     comparison_df = pd.DataFrame(comparison_rows)
     st.markdown("<div class='panel'>Model-family comparison on the 2019 holdout period.</div>", unsafe_allow_html=True)
-    st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+    st.dataframe(comparison_df, width="stretch", hide_index=True)
 
     backtest_rows = metrics.get("backtesting", {}).get("quarters", [])
+    uncertainty_rows = metrics.get("uncertainty", {}).get("monthly_analysis", [])
     if backtest_rows:
         backtest_df = pd.DataFrame(backtest_rows)
         chart_df = backtest_df.set_index("period")[["baseline_rmse", "model_rmse"]]
         st.line_chart(chart_df)
-        st.dataframe(backtest_df, use_container_width=True, hide_index=True)
+        st.dataframe(backtest_df, width="stretch", hide_index=True)
         summary = metrics.get("backtesting", {}).get("summary", {})
         summary_cols = st.columns(3)
         summary_cols[0].metric("Mean backtest MAE", summary.get("mean_mae", "n/a"))
         summary_cols[1].metric("Mean backtest RMSE", summary.get("mean_rmse", "n/a"))
         summary_cols[2].metric("Mean backtest R2", summary.get("mean_r2", "n/a"))
 
+    if uncertainty_rows:
+        uncertainty_df = pd.DataFrame(uncertainty_rows)
+        st.markdown("<div class='panel'>Monthly residual diagnostics and empirical uncertainty coverage on the 2019 holdout set.</div>", unsafe_allow_html=True)
+        monthly_chart = uncertainty_df.set_index("month_label")[["bias", "mae", "interval_coverage"]]
+        st.line_chart(monthly_chart)
+        diag_cols = st.columns(3)
+        diag_cols[0].metric("Interval level", f"{int(metrics.get('uncertainty', {}).get('interval_level', 0) * 100)}%")
+        diag_cols[1].metric("Holdout coverage", metrics.get("uncertainty", {}).get("coverage", "n/a"))
+        diag_cols[2].metric("Average width", metrics.get("uncertainty", {}).get("average_width", "n/a"))
+        st.dataframe(uncertainty_df, width="stretch", hide_index=True)
+
 with visuals_tab:
     visuals_left, visuals_right = st.columns(2)
     with visuals_left:
-        st.image(str(ROOT / "visuals" / "predicted_vs_actual.png"), caption="Predicted vs actual next-hour PM2.5")
-        st.image(str(ROOT / "visuals" / "model_comparison.png"), caption="Holdout RMSE by model family")
+        show_visual(ROOT / "visuals" / "predicted_vs_actual.png", "Predicted vs actual next-hour PM2.5")
+        show_visual(ROOT / "visuals" / "model_comparison.png", "Holdout RMSE by model family")
+        show_visual(ROOT / "visuals" / "monthly_residual_analysis.png", "Monthly residual bias and MAE")
     with visuals_right:
-        st.image(str(ROOT / "visuals" / "feature_importance.png"), caption="Top feature importances")
-        st.image(str(ROOT / "visuals" / "quarterly_backtest_rmse.png"), caption="Quarterly walk-forward RMSE")
+        show_visual(ROOT / "visuals" / "feature_importance.png", "Top feature importances")
+        show_visual(ROOT / "visuals" / "quarterly_backtest_rmse.png", "Quarterly walk-forward RMSE")
+        show_visual(ROOT / "visuals" / "monthly_uncertainty_coverage.png", "Monthly coverage and interval width")
+        show_visual(ROOT / "visuals" / "uncertainty_band_example.png", "Example uncertainty band over time")
 
 with deploy_tab:
     st.markdown(
