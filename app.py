@@ -154,7 +154,7 @@ station_details = station_lookup.loc[station_code]
 st.markdown(
     f"""
     <section class="hero">
-        
+        <div class="small-label">Dashboard</div>
         <h1>Air Pollution Forecasting Studio</h1>
         <p>
             Forecast next-hour PM2.5 with a time-series aware model, inspect validation quality,
