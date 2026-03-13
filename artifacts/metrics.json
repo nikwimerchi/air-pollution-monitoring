@@ -1,0 +1,82 @@
+{
+  "dataset": {
+    "rows_used": 630904,
+    "stations": 25,
+    "min_date": "2017-01-02 00:00:00",
+    "max_date": "2019-12-31 22:00:00",
+    "train_rows": 428595,
+    "test_rows": 202309
+  },
+  "baseline": {
+    "mae": 7.9932,
+    "rmse": 67.1801,
+    "r2": -0.3217
+  },
+  "selected_model": {
+    "key": "hist_gradient_boosting",
+    "label": "HistGradientBoostingRegressor"
+  },
+  "model": {
+    "mae": 6.8644,
+    "rmse": 49.896,
+    "r2": 0.2709
+  },
+  "models": {
+    "hist_gradient_boosting": {
+      "mae": 6.8644,
+      "rmse": 49.896,
+      "r2": 0.2709
+    },
+    "ridge_regression": {
+      "mae": 9.6181,
+      "rmse": 52.1731,
+      "r2": 0.2028
+    }
+  },
+  "backtesting": {
+    "granularity": "quarter",
+    "quarters": [
+      {
+        "period": "2019-Q1",
+        "rows": 48022,
+        "baseline_rmse": 68.0542,
+        "baseline_mae": 9.3838,
+        "model_rmse": 50.5493,
+        "model_mae": 8.3695,
+        "model_r2": 0.3153
+      },
+      {
+        "period": "2019-Q2",
+        "rows": 52791,
+        "baseline_rmse": 65.0153,
+        "baseline_mae": 7.8552,
+        "model_rmse": 46.871,
+        "model_mae": 6.273,
+        "model_r2": 0.1053
+      },
+      {
+        "period": "2019-Q3",
+        "rows": 49078,
+        "baseline_rmse": 72.7432,
+        "baseline_mae": 7.9249,
+        "model_rmse": 56.0546,
+        "model_mae": 6.8437,
+        "model_r2": 0.3427
+      },
+      {
+        "period": "2019-Q4",
+        "rows": 52418,
+        "baseline_rmse": 62.9625,
+        "baseline_mae": 6.922,
+        "model_rmse": 45.0141,
+        "model_mae": 5.892,
+        "model_r2": 0.1931
+      }
+    ],
+    "summary": {
+      "mean_rmse": 49.6223,
+      "mean_mae": 6.8445,
+      "mean_r2": 0.2391
+    }
+  }
+}
