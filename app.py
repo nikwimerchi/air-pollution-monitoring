@@ -22,7 +22,7 @@ if str(SRC) not in sys.path:
 from air_pollution.data import build_inference_frame
 
 
-st.set_page_config(page_title="AIMS Air Pollution Forecaster", page_icon="AQ", layout="wide")
+st.set_page_config(page_title=" Air Pollution Forecaster", page_icon="AQ", layout="wide")
 
 
 @st.cache_resource
@@ -154,7 +154,7 @@ station_details = station_lookup.loc[station_code]
 st.markdown(
     f"""
     <section class="hero">
-        <div class="small-label">AIMS Submission Dashboard</div>
+        
         <h1>Air Pollution Forecasting Studio</h1>
         <p>
             Forecast next-hour PM2.5 with a time-series aware model, inspect validation quality,

@@ -209,7 +209,7 @@
       {
         "month_number": 1,
         "month_label": "Jan",
-        "rows": 18518.0,
+        "rows": 18518,
         "bias": 1.7586,
         "mae": 8.7947,
         "rmse": 54.6394,
@@ -220,7 +220,7 @@
       {
         "month_number": 2,
         "month_label": "Feb",
-        "rows": 16695.0,
+        "rows": 16695,
         "bias": 2.0158,
         "mae": 7.8211,
         "rmse": 51.8528,
@@ -231,7 +231,7 @@
       {
         "month_number": 3,
         "month_label": "Mar",
-        "rows": 12809.0,
+        "rows": 12809,
         "bias": 1.0414,
         "mae": 8.4697,
         "rmse": 41.9438,
@@ -242,7 +242,7 @@
       {
         "month_number": 4,
         "month_label": "Apr",
-        "rows": 17948.0,
+        "rows": 17948,
         "bias": 1.156,
         "mae": 6.0875,
         "rmse": 45.3704,
@@ -253,7 +253,7 @@
       {
         "month_number": 5,
         "month_label": "May",
-        "rows": 17314.0,
+        "rows": 17314,
         "bias": 1.2019,
         "mae": 6.6919,
         "rmse": 44.6378,
@@ -264,7 +264,7 @@
       {
         "month_number": 6,
         "month_label": "Jun",
-        "rows": 17529.0,
+        "rows": 17529,
         "bias": 1.9055,
         "mae": 6.5882,
         "rmse": 50.1083,
@@ -275,7 +275,7 @@
       {
         "month_number": 7,
         "month_label": "Jul",
-        "rows": 17377.0,
+        "rows": 17377,
         "bias": 3.0967,
         "mae": 7.6905,
         "rmse": 59.3714,
@@ -286,7 +286,7 @@
       {
         "month_number": 8,
         "month_label": "Aug",
-        "rows": 17692.0,
+        "rows": 17692,
         "bias": 2.1732,
         "mae": 6.033,
         "rmse": 51.2475,
@@ -297,7 +297,7 @@
       {
         "month_number": 9,
         "month_label": "Sep",
-        "rows": 14009.0,
+        "rows": 14009,
         "bias": 2.5696,
         "mae": 7.4331,
         "rmse": 60.1458,
@@ -308,7 +308,7 @@
       {
         "month_number": 10,
         "month_label": "Oct",
-        "rows": 17343.0,
+        "rows": 17343,
         "bias": 0.8743,
         "mae": 5.594,
         "rmse": 46.7872,
@@ -319,7 +319,7 @@
       {
         "month_number": 11,
         "month_label": "Nov",
-        "rows": 17523.0,
+        "rows": 17523,
         "bias": 0.8317,
         "mae": 5.8335,
         "rmse": 46.2063,
@@ -330,7 +330,7 @@
       {
         "month_number": 12,
         "month_label": "Dec",
-        "rows": 17552.0,
+        "rows": 17552,
         "bias": 1.2758,
         "mae": 5.8381,
         "rmse": 42.5212,
