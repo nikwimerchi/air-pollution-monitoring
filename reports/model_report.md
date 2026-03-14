@@ -44,6 +44,26 @@ Average across quarters:
 - Mean RMSE: 49.6223
 - Mean R2: 0.2391
 
+## Monthly Residual Analysis
+- Jan: bias 1.7586, MAE 8.7947, RMSE 54.6394, coverage 0.77, width 13.5168
+- Feb: bias 2.0158, MAE 7.8211, RMSE 51.8528, coverage 0.7817, width 12.6468
+- Mar: bias 1.0414, MAE 8.4697, RMSE 41.9438, coverage 0.7334, width 15.5969
+- Apr: bias 1.156, MAE 6.0875, RMSE 45.3704, coverage 0.8402, width 12.1038
+- May: bias 1.2019, MAE 6.6919, RMSE 44.6378, coverage 0.7788, width 11.4614
+- Jun: bias 1.9055, MAE 6.5882, RMSE 50.1083, coverage 0.8432, width 12.3097
+- Jul: bias 3.0967, MAE 7.6905, RMSE 59.3714, coverage 0.7822, width 9.3672
+- Aug: bias 2.1732, MAE 6.033, RMSE 51.2475, coverage 0.8034, width 8.6549
+- Sep: bias 2.5696, MAE 7.4331, RMSE 60.1458, coverage 0.7944, width 7.0247
+- Oct: bias 0.8743, MAE 5.594, RMSE 46.7872, coverage 0.8138, width 8.3568
+- Nov: bias 0.8317, MAE 5.8335, RMSE 46.2063, coverage 0.8909, width 12.6233
+- Dec: bias 1.2758, MAE 5.8381, RMSE 42.5212, coverage 0.8168, width 10.8648
+
+## Uncertainty Bands
+- Interval level: 80%
+- Empirical holdout coverage: 0.8059
+- Average interval width: 11.1899
+- Calibration source: 2018 quarter-by-quarter walk-forward residuals grouped by calendar month
+
 ## Most Influential Features
 - PM2.5: 7.9235
 - pm25_lag_1: 2.5292
@@ -57,15 +77,20 @@ Average across quarters:
 - NO2: 0.0860
 
 ## Interpretation
-The evaluation is now stronger in two ways. First, a second model family is trained on the same feature set to test whether the gains come from the model design or only from the features. Second, quarterly walk-forward backtesting measures how stable the selected model is through time instead of relying on one aggregate holdout score.
+The evaluation is now stronger in three ways. First, a second model family is trained on the same feature set to test whether the gains come from the model design or only from the features. Second, quarterly walk-forward backtesting measures how stable the selected model is through time instead of relying on one aggregate holdout score. Third, monthly residual diagnostics and empirical uncertainty bands reveal when the model is biased, how error magnitude shifts through the year, and how reliable the prediction interval is.
 
 ## Artifacts
 - Model: artifacts/model.joblib
 - Metrics: artifacts/metrics.json
 - Model comparison: artifacts/model_comparison.csv
 - Quarterly backtest: artifacts/quarterly_backtest.csv
+- Monthly residual analysis: artifacts/monthly_residual_analysis.csv
+- Monthly uncertainty profile: artifacts/monthly_uncertainty_profile.csv
 - Station metadata: artifacts/stations.csv
 - Prediction plot: visuals/predicted_vs_actual.png
 - Feature importance plot: visuals/feature_importance.png
 - Model comparison plot: visuals/model_comparison.png
 - Quarterly backtest plot: visuals/quarterly_backtest_rmse.png
+- Monthly residual plot: visuals/monthly_residual_analysis.png
+- Monthly uncertainty plot: visuals/monthly_uncertainty_coverage.png
+- Uncertainty band example: visuals/uncertainty_band_example.png
